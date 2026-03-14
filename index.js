@@ -4,7 +4,6 @@ import dotenv from "dotenv";
 import mongoose from "mongoose";
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import serverless from 'serverless-http';
 
 dotenv.config();
 
@@ -25,7 +24,6 @@ import cronRoutes from "./routes/cron.js";
 import errorHandler from './middleware/errorHandler.js';
 
 // ─── MongoDB ──────────────────────────────────────────────────────────────────
-// Don't buffer commands — fail fast if not yet connected instead of queuing forever.
 mongoose.set('bufferCommands', false);
 
 let dbPromise = null;
@@ -33,28 +31,28 @@ let dbPromise = null;
 const connectDB = () => {
   if (dbPromise) return dbPromise;
   dbPromise = mongoose
-    .connect(config.MONGO_URI, { family: 4, serverSelectionTimeoutMS: 10000 })
+    .connect(config.MONGO_URI, {
+      family: 4,
+      serverSelectionTimeoutMS: 10000,
+    })
     .then(() => console.log('Database connected successfully'))
     .catch((err) => {
       console.error('Database connection error:', err.message);
-      dbPromise = null; // allow retry on next request
+      dbPromise = null;
     });
   return dbPromise;
 };
 
-// Kick off the connection immediately at module load (warm-up on first import)
+// Start connecting immediately on module load (cold-start warm-up)
 if (process.env.NODE_ENV !== 'test') connectDB();
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 const app = express();
 
-// Trust Vercel's reverse proxy so req.ip resolves correctly
 app.set('trust proxy', 1);
 
-// Security
 app.use(helmet());
 
-// Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -68,7 +66,7 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// CORS — hardcoded production origin as fallback so a missing env var never breaks the app
+// CORS
 const HARDCODED_ORIGINS = ['https://library-athenaeum-frontend.vercel.app'];
 const envOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim().replace(/\/$/, ''))
@@ -77,7 +75,7 @@ const allowedOrigins = Array.from(new Set([...HARDCODED_ORIGINS, ...envOrigins])
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true); // server-to-server / curl / cron
+    if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
     callback(new Error(`CORS: origin ${origin} not allowed`));
   },
@@ -90,7 +88,7 @@ app.options('*', cors(corsOptions));
 
 app.use(express.json());
 
-// Ensure DB is connected before every request (non-blocking re-use if already connected)
+// Ensure DB connected before every request
 app.use(async (req, res, next) => {
   if (process.env.NODE_ENV === 'test') return next();
   try {
@@ -119,20 +117,17 @@ app.use('/api/announcements', announcementRoutes);
 app.use('/api/admin-tools', adminToolsRoutes);
 app.use('/api/cron', cronRoutes);
 
-// Error handler
 app.use(errorHandler);
 
-// ─── Local dev server ─────────────────────────────────────────────────────────
+// ─── Local dev ────────────────────────────────────────────────────────────────
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   connectDB().then(() => {
     const server = app.listen(config.PORT, () =>
       console.log(`Server listening on port ${config.PORT}`)
     );
-    process.on('SIGTERM', () => {
-      server.close(() => console.log('Process terminated'));
-    });
+    process.on('SIGTERM', () => server.close());
   });
 }
 
-// ─── Export ───────────────────────────────────────────────────────────────────
-export default process.env.NODE_ENV === 'test' ? app : serverless(app);
+// Export plain Express app — @vercel/node handles it natively, no serverless-http needed
+export default app;
