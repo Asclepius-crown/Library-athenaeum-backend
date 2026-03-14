@@ -78,7 +78,7 @@ router.post(
 // Get current user
 router.get('/me', authMiddleware, async (req, res) => {
   try {
-    const user = await User.findById(req.user).select('-passwordHash');
+    const user = await User.findById(req.user._id).select('-passwordHash');
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     let studentProfile = null;
@@ -111,7 +111,7 @@ router.post(
 
     try {
       const { currentPassword, newPassword } = req.body;
-      const user = await User.findById(req.user);
+      const user = await User.findById(req.user._id);
       if (!user) return res.status(404).json({ message: 'User not found' });
 
       const isMatch = await user.comparePassword(currentPassword);

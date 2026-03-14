@@ -5,11 +5,11 @@ const router = express.Router();
 
 // This route is called by Vercel Cron
 router.get('/notifications', async (req, res) => {
-  // Optional: Verify Vercel Cron signature if CRON_SECRET is set
-  // const authHeader = req.headers.authorization;
-  // if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-  //   return res.status(401).json({ error: 'Unauthorized' });
-  // }
+  // Verify Vercel Cron signature to prevent unauthorized triggering
+  const authHeader = req.headers.authorization;
+  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 
   console.log('Received Cron Request for Notifications');
   

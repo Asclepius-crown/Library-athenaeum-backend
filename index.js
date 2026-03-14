@@ -1,4 +1,3 @@
-//
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -22,41 +21,60 @@ import announcementRoutes from "./routes/announcements.js";
 import adminToolsRoutes from "./routes/adminTools.js";
 import cronRoutes from "./routes/cron.js";
 import errorHandler from './middleware/errorHandler.js';
-import path from 'path';
-
-global.isConnected = false;
 
 dotenv.config();
 
-const app = express();
+global.isConnected = false;
 
-let exportedApp = app;
-export default exportedApp;
+const app = express();
 
 // Security Middleware
 app.use(helmet());
 
-// Rate Limiting (skip in serverless/test environments)
+// Rate Limiting — skip only in test environments, never in production
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
-  // Skip rate limiting in test/serverless environments
-  skip: (req) => process.env.NODE_ENV === 'test' || process.env.VERCEL,
+  skip: (req) => process.env.NODE_ENV === 'test',
 });
 app.use(limiter);
 
 // CORS Configuration
-app.use(cors({
-  origin: process.env.FRONTEND_URL || "*",
+// credentials:true requires a specific origin — wildcard "*" is invalid with credentials.
+const corsOrigin = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.replace(/\/$/, '') : false;
+const corsOptions = {
+  origin: corsOrigin || false,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
-}));
-app.options('*', cors());
+  credentials: true,
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 app.use(express.json());
+
+// DB Connection Middleware — must be registered BEFORE routes
+const connectDB = async () => {
+  if (global.isConnected) return;
+  try {
+    const db = await mongoose.connect(config.MONGO_URI, { family: 4 });
+    global.isConnected = db.connections[0].readyState;
+    console.log('Database connected successfully');
+  } catch (error) {
+    console.error('Database connection error:', error);
+  }
+};
+
+app.use(async (req, res, next) => {
+  if (process.env.NODE_ENV === 'test') return next();
+  await connectDB();
+  next();
+});
+
+// Health-check route
+app.get("/", (req, res) => res.status(200).send("Athenaeum backend API running"));
 
 // --- Routes ---
 app.use("/api/auth", authRoutes);
@@ -76,43 +94,20 @@ app.use("/api/cron", cronRoutes);
 // Error Handling Middleware
 app.use(errorHandler);
 
-const connectDB = async () => {
-  if (global.isConnected) return;
-  try {
-    const db = await mongoose.connect(config.MONGO_URI, {
-      family: 4, 
-    });
-    global.isConnected = db.connections[0].readyState;
-    console.log('Database connected successfully');
-  } catch (error) {
-    console.error('Database connection error:', error);
-  }
-};
-
-// Middleware to ensure DB is connected on every request
-app.use(async (req, res, next) => {
-  if (process.env.NODE_ENV === 'test') return next();
-  await connectDB();
-  next();
-});
-
-if (process.env.NODE_ENV !== 'test') {
-  exportedApp = serverless(app);
-}
-
 // --- Server Start (Local Dev Only) ---
-// If running locally (not imported as a module by Vercel), start listening AND connect immediately
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   connectDB().then(() => {
-    const server = app.listen(config.PORT, () => console.log(`Server listening on port ${config.PORT}`));
-    // Handle graceful shutdown
+    const server = app.listen(config.PORT, () =>
+      console.log(`Server listening on port ${config.PORT}`)
+    );
     process.on('SIGTERM', () => {
       console.log('SIGTERM received, shutting down gracefully');
-      server.close(() => {
-        console.log('Process terminated');
-      });
+      server.close(() => console.log('Process terminated'));
     });
   }).catch(err => {
     console.error('Failed to start server:', err);
   });
 }
+
+// Export: serverless wrapper for Vercel, raw app for tests
+export default process.env.NODE_ENV === 'test' ? app : serverless(app);
