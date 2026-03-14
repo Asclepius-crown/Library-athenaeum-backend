@@ -34,13 +34,21 @@ app.set('trust proxy', 1);
 // Security Middleware
 app.use(helmet());
 
-// Rate Limiting — skip only in test environments, never in production
+// Rate Limiting
+// On Vercel, use X-Forwarded-For as the key to avoid ERR_ERL_FORWARDED_HEADER warnings.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => process.env.NODE_ENV === 'test',
+  keyGenerator: (req) => {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded) {
+      return forwarded.split(',')[0].trim();
+    }
+    return req.ip || 'unknown';
+  },
 });
 app.use(limiter);
 
