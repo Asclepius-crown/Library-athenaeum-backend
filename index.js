@@ -28,6 +28,9 @@ global.isConnected = false;
 
 const app = express();
 
+// Trust Vercel's reverse proxy so req.ip resolves correctly (required for express-rate-limit)
+app.set('trust proxy', 1);
+
 // Security Middleware
 app.use(helmet());
 
