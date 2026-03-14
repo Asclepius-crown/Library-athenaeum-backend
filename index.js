@@ -53,12 +53,26 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // CORS Configuration
-// credentials:true requires a specific origin — wildcard "*" is invalid with credentials.
-const corsOrigin = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.replace(/\/$/, '') : false;
+// Build allowed origins list from CORS_ORIGIN env var (comma-separated) plus
+// the hardcoded production frontend as a safety net so a missing env var
+// doesn't block all requests.
+const HARDCODED_ORIGINS = [
+  'https://library-athenaeum-frontend.vercel.app',
+];
+const envOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim().replace(/\/$/, ''))
+  : [];
+const allowedOrigins = Array.from(new Set([...HARDCODED_ORIGINS, ...envOrigins]));
+
 const corsOptions = {
-  origin: corsOrigin || false,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (server-to-server, curl, Vercel cron)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
 };
 app.use(cors(corsOptions));
