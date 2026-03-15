@@ -2,8 +2,9 @@ import express from 'express';
 import User from '../models/User.js';
 import Student from '../models/Student.js'; // Import Student model
 import jwt from 'jsonwebtoken';
-import authMiddleware from '../middleware/auth.js';
+import bcrypt from 'bcrypt';
 import { body, validationResult } from 'express-validator';
+import { USER_ROLES } from '../constants/index.js';
 
 const router = express.Router();
 
@@ -32,7 +33,7 @@ router.post(
         name, 
         email, 
         passwordHash: password,
-        role: 'student' // Force role to student
+        role: USER_ROLES.STUDENT // Force role to student
       });
       await user.save();
 
@@ -82,7 +83,7 @@ router.get('/me', authMiddleware, async (req, res) => {
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     let studentProfile = null;
-    if (user.role === 'student') {
+    if (user.role === USER_ROLES.STUDENT) {
       studentProfile = await Student.findOne({ email: user.email });
     }
 
