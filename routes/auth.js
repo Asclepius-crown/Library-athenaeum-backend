@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { body, validationResult } from 'express-validator';
 import { USER_ROLES } from '../constants/index.js';
+import authMiddleware from '../middleware/auth.js';
 
 const router = express.Router();
 
